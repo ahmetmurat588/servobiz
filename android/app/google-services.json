@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "99363342393",
+    "project_id": "servobiz",
+    "storage_bucket": "servobiz.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:99363342393:android:dabf195ea3c891ceb025e8",
+        "android_client_info": {
+          "package_name": "com.example.servobiz"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDC9tnKBIISYQwej26YWB3ZIxowYo2M7VM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
