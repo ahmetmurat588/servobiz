@@ -124,8 +124,6 @@ class OnayServisi {
         istek.cihazServoBizNo,
         istek.istenenDurum,
         notlar: raporMetni,
-        yazanKullanici: istek.isteyenAd,
-        yazanEmail: istek.isteyenEmail,
       );
 
       if (!guncellendi) return false;

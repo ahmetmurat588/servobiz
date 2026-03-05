@@ -11,6 +11,7 @@ import 'services/yetkilendirme_sistemi.dart';
 import 'services/cihaz_servisi.dart';
 import 'services/onay_servisi.dart';
 import 'services/bildirim_servisi.dart';
+import 'services/fcm_servisi.dart';
 import 'dialogs/giris_dialog.dart';
 import 'dialogs/kullanici_duzenle_dialog.dart';
 import 'dart:async';
@@ -18,17 +19,28 @@ import 'dart:async';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // Firebase başlat
-  await Firebase.initializeApp();
-  
-  // Tüm servisleri PARALEL başlat (çok daha hızlı)
-  await Future.wait([
-    BildirimServisi().init(),
-    KimlkiDogrulamaSistemi().init(),
-    CihazServisi().init(),
-    OnayServisi().init(),
-    YetkilendirmeSistemi().init(),
-  ]);
+  try {
+    // Firebase başlat (İLK ÖNCE!)
+    await Firebase.initializeApp();
+    
+    // Tüm servisleri PARALEL başlat
+    await Future.wait([
+      BildirimServisi().init(),
+      KimlkiDogrulamaSistemi().init(),
+      CihazServisi().init(),
+      OnayServisi().init(),
+      YetkilendirmeSistemi().init(),
+    ]);
+    
+    // FCM başlat (kullanıcı girişi yapıldıktan sonra email ile çağrılacak)
+    // Şimdilik sadece token almak için null ile başlat
+    final auth = KimlkiDogrulamaSistemi();
+    final userEmail = auth.aktifoKullanici?.email;
+    await FCMServisi().init(userEmail);
+  } catch (e) {
+    debugPrint('Firebase başlatma hatası: $e');
+    // Hata olsa bile uygulamayı başlat
+  }
   
   runApp(ServoBizApp());
 }

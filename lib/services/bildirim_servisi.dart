@@ -1,4 +1,5 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'fcm_servisi.dart';
 
 class BildirimServisi {
   static final BildirimServisi _instance = BildirimServisi._internal();
@@ -7,6 +8,9 @@ class BildirimServisi {
 
   final FlutterLocalNotificationsPlugin _bildirimPlugin = 
       FlutterLocalNotificationsPlugin();
+  
+  // FCM servisi referansı
+  final FCMServisi _fcmServisi = FCMServisi();
 
   // Bildirim kanallari
   static const String _cihazKanalId = 'cihaz_kanali';
@@ -84,122 +88,193 @@ class BildirimServisi {
   }
 
   /// Cihaz kaydedildi bildirimi
-  Future<void> cihazKaydedildi(String servoBizNo, String markaModel, {String? kaydeden}) async {
+  /// showLocal: Yerel bildirim göster (varsayılan: true)
+  /// sendPush: Tüm cihazlara push bildirim gönder (varsayılan: true)
+  Future<void> cihazKaydedildi(
+    String servoBizNo, 
+    String markaModel, {
+    String? kaydeden,
+    bool showLocal = true,
+    bool sendPush = true,
+  }) async {
     final mesaj = kaydeden != null 
         ? '$kaydeden yeni cihaz kaydetti:\n$servoBizNo - $markaModel'
         : 'ServoBiz No: $servoBizNo\n$markaModel';
 
-    final androidDetails = AndroidNotificationDetails(
-      _cihazKanalId,
-      'Cihaz Bildirimleri',
-      channelDescription: 'Cihaz kayıt ve güncelleme bildirimleri',
-      importance: Importance.high,
-      priority: Priority.high,
-      colorized: true,
-      icon: '@mipmap/ic_launcher',
-      styleInformation: BigTextStyleInformation(mesaj),
-    );
+    // Yerel bildirim göster
+    if (showLocal) {
+      final androidDetails = AndroidNotificationDetails(
+        _cihazKanalId,
+        'Cihaz Bildirimleri',
+        channelDescription: 'Cihaz kayıt ve güncelleme bildirimleri',
+        importance: Importance.high,
+        priority: Priority.high,
+        colorized: true,
+        icon: '@mipmap/ic_launcher',
+        styleInformation: BigTextStyleInformation(mesaj),
+      );
 
-    final notificationDetails = NotificationDetails(android: androidDetails);
+      final notificationDetails = NotificationDetails(android: androidDetails);
 
-    await _bildirimPlugin.show(
-      DateTime.now().millisecondsSinceEpoch ~/ 1000,
-      'Yeni Cihaz Kaydedildi',
-      mesaj,
-      notificationDetails,
-    );
+      await _bildirimPlugin.show(
+        DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        'Yeni Cihaz Kaydedildi',
+        mesaj,
+        notificationDetails,
+      );
+    }
+    
+    // Tüm cihazlara push bildirim gönder (FCM)
+    if (sendPush && kaydeden != null) {
+      await _fcmServisi.cihazEklendiBildirimi(
+        servoBizNo: servoBizNo,
+        markaModel: markaModel,
+        kaydeden: kaydeden,
+      );
+    }
   }
 
   /// Cihaz durumu güncellendi bildirimi
+  /// sendPush: Tüm cihazlara push bildirim gönder (varsayılan: true)
   Future<void> cihazDurumuGuncellendi(
     String servoBizNo,
     String eskiDurum,
     String yeniDurum,
-    String guncelleyen,
-  ) async {
+    String guncelleyen, {
+    bool showLocal = true,
+    bool sendPush = true,
+  }) async {
     final mesaj = '$servoBizNo\n$eskiDurum → $yeniDurum';
 
-    final androidDetails = AndroidNotificationDetails(
-      _cihazKanalId,
-      'Cihaz Bildirimleri',
-      channelDescription: 'Cihaz kayıt ve güncelleme bildirimleri',
-      importance: Importance.high,
-      priority: Priority.high,
-      colorized: true,
-      icon: '@mipmap/ic_launcher',
-      styleInformation: BigTextStyleInformation(mesaj),
-    );
+    // Yerel bildirim göster
+    if (showLocal) {
+      final androidDetails = AndroidNotificationDetails(
+        _cihazKanalId,
+        'Cihaz Bildirimleri',
+        channelDescription: 'Cihaz kayıt ve güncelleme bildirimleri',
+        importance: Importance.high,
+        priority: Priority.high,
+        colorized: true,
+        icon: '@mipmap/ic_launcher',
+        styleInformation: BigTextStyleInformation(mesaj),
+      );
 
-    final notificationDetails = NotificationDetails(android: androidDetails);
+      final notificationDetails = NotificationDetails(android: androidDetails);
 
-    await _bildirimPlugin.show(
-      DateTime.now().millisecondsSinceEpoch ~/ 1000,
-      '$guncelleyen Cihaz Güncelledi',
-      mesaj,
-      notificationDetails,
-    );
+      await _bildirimPlugin.show(
+        DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        '$guncelleyen Cihaz Güncelledi',
+        mesaj,
+        notificationDetails,
+      );
+    }
+    
+    // Tüm cihazlara push bildirim gönder (FCM)
+    if (sendPush) {
+      await _fcmServisi.durumDegistiBildirimi(
+        servoBizNo: servoBizNo,
+        eskiDurum: eskiDurum,
+        yeniDurum: yeniDurum,
+        guncelleyen: guncelleyen,
+      );
+    }
   }
 
   /// Onay isteği oluşturuldu bildirimi
+  /// sendPush: Tüm cihazlara push bildirim gönder (varsayılan: true)
   Future<void> onayIstegiOlusturuldu(
     String servoBizNo,
     String istenenDurum,
-    String isteyen,
-  ) async {
+    String isteyen, {
+    bool showLocal = true,
+    bool sendPush = true,
+    String? hedefOnaylayici,
+  }) async {
     final mesaj = '$servoBizNo cihazı için\n"$istenenDurum" onay bekliyor';
 
-    final androidDetails = AndroidNotificationDetails(
-      _onayKanalId,
-      'Onay Bildirimleri',
-      channelDescription: 'Onay isteği bildirimleri',
-      importance: Importance.max,
-      priority: Priority.high,
-      colorized: true,
-      icon: '@mipmap/ic_launcher',
-      styleInformation: BigTextStyleInformation(mesaj),
-    );
+    // Yerel bildirim göster
+    if (showLocal) {
+      final androidDetails = AndroidNotificationDetails(
+        _onayKanalId,
+        'Onay Bildirimleri',
+        channelDescription: 'Onay isteği bildirimleri',
+        importance: Importance.max,
+        priority: Priority.high,
+        colorized: true,
+        icon: '@mipmap/ic_launcher',
+        styleInformation: BigTextStyleInformation(mesaj),
+      );
 
-    final notificationDetails = NotificationDetails(android: androidDetails);
+      final notificationDetails = NotificationDetails(android: androidDetails);
 
-    await _bildirimPlugin.show(
-      DateTime.now().millisecondsSinceEpoch ~/ 1000,
-      '$isteyen Onay İstedi',
-      mesaj,
-      notificationDetails,
-    );
+      await _bildirimPlugin.show(
+        DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        '$isteyen Onay İstedi',
+        mesaj,
+        notificationDetails,
+      );
+    }
+    
+    // Tüm cihazlara (veya belirli onaylayıcıya) push bildirim gönder
+    if (sendPush) {
+      await _fcmServisi.onayIstegiBildirimi(
+        servoBizNo: servoBizNo,
+        istenenDurum: istenenDurum,
+        isteyen: isteyen,
+        hedefOnaylayici: hedefOnaylayici,
+      );
+    }
   }
 
   /// Onay isteği sonuçlandı bildirimi
+  /// sendPush: Tüm cihazlara push bildirim gönder (varsayılan: true)
   Future<void> onayIstegiSonuclandi(
     String servoBizNo,
     String durum,
     bool onaylandi,
-    String islemYapan,
-  ) async {
+    String islemYapan, {
+    bool showLocal = true,
+    bool sendPush = true,
+    String? hedefKullanici,
+  }) async {
     final String baslik = onaylandi ? '$islemYapan Onayladı' : '$islemYapan Reddetti';
     final String mesaj = onaylandi
         ? '$servoBizNo cihazı\n"$durum" olarak güncellendi'
         : '$servoBizNo cihazı için\nonay isteği reddedildi';
 
-    final androidDetails = AndroidNotificationDetails(
-      _onayKanalId,
-      'Onay Bildirimleri',
-      channelDescription: 'Onay isteği bildirimleri',
-      importance: Importance.high,
-      priority: Priority.high,
-      colorized: true,
-      icon: '@mipmap/ic_launcher',
-      styleInformation: BigTextStyleInformation(mesaj),
-    );
+    // Yerel bildirim göster
+    if (showLocal) {
+      final androidDetails = AndroidNotificationDetails(
+        _onayKanalId,
+        'Onay Bildirimleri',
+        channelDescription: 'Onay isteği bildirimleri',
+        importance: Importance.high,
+        priority: Priority.high,
+        colorized: true,
+        icon: '@mipmap/ic_launcher',
+        styleInformation: BigTextStyleInformation(mesaj),
+      );
 
-    final notificationDetails = NotificationDetails(android: androidDetails);
+      final notificationDetails = NotificationDetails(android: androidDetails);
 
-    await _bildirimPlugin.show(
-      DateTime.now().millisecondsSinceEpoch ~/ 1000,
-      baslik,
-      mesaj,
-      notificationDetails,
-    );
+      await _bildirimPlugin.show(
+        DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        baslik,
+        mesaj,
+        notificationDetails,
+      );
+    }
+    
+    // Onay isteyen kullanıcıya push bildirim gönder
+    if (sendPush && hedefKullanici != null) {
+      await _fcmServisi.onaySonucuBildirimi(
+        servoBizNo: servoBizNo,
+        durum: durum,
+        onaylandi: onaylandi,
+        islemYapan: islemYapan,
+        hedefKullanici: hedefKullanici,
+      );
+    }
   }
 
   /// Hata bildirimi

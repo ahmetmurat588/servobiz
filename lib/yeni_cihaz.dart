@@ -39,10 +39,11 @@ class _YeniCihazSayfasiState extends State<YeniCihazSayfasi> {
   
   Future<void> _servoBizNoYukle() async {
     // Firestore'dan güncel verileri çek
-    await _cihazServisi.yenile();
+    await _cihazServisi.init();
     if (mounted) {
       setState(() {
-        servoBizNo = _cihazServisi.sonrakiServoBizNo();
+        // Otomatik yeni ServoBizNo üretimi (örnek: toplam cihaz + 1)
+        servoBizNo = (_cihazServisi.cihazlar.length + 1).toString().padLeft(5, '0');
         _yukleniyor = false;
       });
     }
@@ -71,7 +72,7 @@ class _YeniCihazSayfasiState extends State<YeniCihazSayfasi> {
       final firmaIsmi = _firmaIsimiController.text.trim();
 
       // Aynı seri numarasıyla kayıtlı cihaz kontrolü
-      final seriNoEslesen = _cihazServisi.seriNoIleCihazBul(seriNo);
+      final seriNoEslesen = _cihazServisi.cihazlar.where((c) => c.seriNo == seriNo).toList();
       if (seriNoEslesen.isNotEmpty) {
         final devamEt = await _benzerCihazUyarisiGoster(
           seriNoEslesen, 
@@ -87,7 +88,7 @@ class _YeniCihazSayfasiState extends State<YeniCihazSayfasi> {
       }
 
       // Aynı marka/model ve firma ile kayıtlı cihaz kontrolü
-      final markaFirmaEslesen = _cihazServisi.markaModelVeFirmaIleCihazBul(markaModel, firmaIsmi);
+      final markaFirmaEslesen = _cihazServisi.cihazlar.where((c) => c.markaModel == markaModel && c.firmaIsmi == firmaIsmi).toList();
       if (markaFirmaEslesen.isNotEmpty) {
         final devamEt = await _benzerCihazUyarisiGoster(
           markaFirmaEslesen, 

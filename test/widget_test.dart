@@ -1,9 +1,6 @@
-// This is a basic Flutter widget test.
+// ServoBiz Widget Tests
 //
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
+// Bu dosya uygulamanın ana widget'larını test eder.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,20 +8,32 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:servobiz/main.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  group('ServoBiz Ana Sayfa Testleri', () {
+    testWidgets('Ana sayfa yükleniyor mu testi', (WidgetTester tester) async {
+      // Uygulamayı başlat
+      await tester.pumpWidget(const ServoBizApp());
+      await tester.pumpAndSettle();
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+      // Ana menü butonlarının var olduğunu kontrol et
+      expect(find.text('YENİ CİHAZ KAYDET'), findsOneWidget);
+      expect(find.text('CİHAZ DURUMU GÜNCELLE'), findsOneWidget);
+      expect(find.text('CİHAZ LİSTESİ'), findsOneWidget);
+    });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+    testWidgets('Giriş butonu görünüyor mu testi', (WidgetTester tester) async {
+      await tester.pumpWidget(const ServoBizApp());
+      await tester.pumpAndSettle();
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+      // Giriş butonunun var olduğunu kontrol et
+      expect(find.text('GİRİŞ YAP'), findsOneWidget);
+    });
+
+    testWidgets('Onay Bekleyenler butonu görünüyor mu testi', (WidgetTester tester) async {
+      await tester.pumpWidget(const ServoBizApp());
+      await tester.pumpAndSettle();
+
+      // Onay Bekleyenler butonunun var olduğunu kontrol et
+      expect(find.text('ONAY BEKLEYENLER'), findsOneWidget);
+    });
   });
 }

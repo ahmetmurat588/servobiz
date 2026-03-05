@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
-import 'models/kullanici.dart';
 import 'services/kimlik_dogrulama.dart';
 import 'services/yetkilendirme_sistemi.dart';
-import 'services/veri_yukleme_servisi.dart';
+
 
 class YetkilendirmeSayfasi extends StatefulWidget {
   const YetkilendirmeSayfasi({super.key});
@@ -209,69 +208,6 @@ class _YetkilendirmeSayfasiState extends State<YetkilendirmeSayfasi> {
 
               // Mevcut yetkiler listesi
               _buildMevcutYetkiler(),
-              
-              const SizedBox(height: 30),
-              
-              // VERİ YÖNETİMİ BÖLÜMÜ
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.purple.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(15),
-                  border: Border.all(color: Colors.purple.withOpacity(0.5)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.storage, color: Colors.purple, size: 24),
-                        const SizedBox(width: 10),
-                        const Text(
-                          'Veri Yönetimi',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    const Text(
-                      'Toplu veri yükleme ve silme işlemleri',
-                      style: TextStyle(color: Colors.white70, fontSize: 12),
-                    ),
-                    const SizedBox(height: 20),
-                    
-                    // JSON Yükleme Butonu
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: () async {
-                          final servis = VeriYuklemeServisi();
-                          final sayi = await servis.excelVerileriniYukle();
-                          
-                          if (sayi > 0) {
-                            _showSuccess('$sayi cihaz başarıyla yüklendi!');
-                          } else {
-                            _showError('Cihaz yüklenemedi veya zaten mevcut');
-                          }
-                        },
-                        icon: const Icon(Icons.upload_file),
-                        label: const Text('JSON Verilerini Yükle'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.purple,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
             ],
           ),
         ),

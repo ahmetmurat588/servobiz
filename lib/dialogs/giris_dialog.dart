@@ -81,14 +81,15 @@ class _GirisDialogState extends State<GirisDialog> {
       }
     } catch (e) {
       setState(() => _yukleniyor = false);
-      _showError('Hata: $e');
+      debugPrint('Giriş hatası: $e');
+      _showError('Bağlantı hatası. Lütfen internet bağlantınızı kontrol edin.');
     }
   }
 
   // Kayit icin devam et - dogrulama kodu gonder
   Future<void> _devamEt() async {
     final kullaniciAdi = _kullaniciAdiController.text.trim();
-    final email = _emailKayitController.text.trim();
+    final email = _emailKayitController.text.trim().toLowerCase();
     final sifre = _sifreKayitController.text.trim();
     final sifreTekrar = _sifreKayitTekrarController.text.trim();
 
@@ -99,18 +100,6 @@ class _GirisDialogState extends State<GirisDialog> {
 
     if (!EmailValidator.isValidEmail(email)) {
       _showError('Geçerli bir email adresi giriniz.');
-      return;
-    }
-
-    // Email kontrolu
-    if (_auth.emailVarMi(email)) {
-      _showError('Bu email adresi zaten kayıtlı.');
-      return;
-    }
-
-    // Kullanici adi kontrolu
-    if (_auth.kullaniciAdiVarMi(kullaniciAdi)) {
-      _showError('Bu kullanıcı adı zaten alınmış.');
       return;
     }
 
@@ -127,6 +116,22 @@ class _GirisDialogState extends State<GirisDialog> {
     setState(() => _yukleniyor = true);
 
     try {
+      // Firebase'den email kontrolü (gerçek zamanlı)
+      final emailVar = await _auth.emailVarMiFirebase(email);
+      if (emailVar) {
+        setState(() => _yukleniyor = false);
+        _showError('Bu email adresi zaten kayıtlı!');
+        return;
+      }
+
+      // Firebase'den kullanıcı adı kontrolü (gerçek zamanlı)
+      final kullaniciAdiVar = await _auth.kullaniciAdiVarMiFirebase(kullaniciAdi);
+      if (kullaniciAdiVar) {
+        setState(() => _yukleniyor = false);
+        _showError('Bu kullanıcı adı zaten alınmış!');
+        return;
+      }
+
       // Dogrulama kodu gonder
       final kodGonderildi = await _auth.dogrulamaKoduGonder(email);
       
@@ -134,7 +139,7 @@ class _GirisDialogState extends State<GirisDialog> {
       
       if (kodGonderildi) {
         // Email'i normalize ederek sakla (tutarlılık için)
-        _selectedEmail = email.trim().toLowerCase();
+        _selectedEmail = email;
         _selectedKullaniciAdi = kullaniciAdi;
         _selectedAdSoyad = kullaniciAdi; // Kullanici adi olarak ayarla
         print('📝 Email kaydedildi: $_selectedEmail');
@@ -145,7 +150,7 @@ class _GirisDialogState extends State<GirisDialog> {
       }
     } catch (e) {
       setState(() => _yukleniyor = false);
-      _showError('Hata: $e');
+      _showError('Bağlantı hatası: $e');
     }
   }
 
@@ -184,7 +189,7 @@ class _GirisDialogState extends State<GirisDialog> {
   // Kaydi tamamla
   Future<void> _kayitTamamla() async {
     try {
-      final basarili = await _auth.yeniKullaniciKaydet(
+      final sonuc = await _auth.yeniKullaniciKaydetDetayli(
         email: _selectedEmail!,
         kullaniciAdi: _selectedKullaniciAdi!,
         adSoyad: _selectedAdSoyad!,
@@ -193,7 +198,7 @@ class _GirisDialogState extends State<GirisDialog> {
       
       setState(() => _yukleniyor = false);
 
-      if (basarili) {
+      if (sonuc['basarili'] == true) {
         _showSuccess('Kayıt tamamlandı! Hoş geldiniz.');
         setState(() => _kayitAsama = 2);
 
@@ -202,11 +207,19 @@ class _GirisDialogState extends State<GirisDialog> {
           Navigator.of(context).pop();
         });
       } else {
-        _showError('Kayıt sırasında hata oluştu. Lütfen tekrar deneyiniz.');
+        // Detaylı hata mesajını göster
+        final hataKodu = sonuc['hataKodu'];
+        if (hataKodu == 'EMAIL_EXISTS') {
+          _showError('Bu email adresi zaten kayıtlı!');
+        } else if (hataKodu == 'USERNAME_EXISTS') {
+          _showError('Bu kullanıcı adı zaten alınmış!');
+        } else {
+          _showError(sonuc['mesaj'] ?? 'Kayıt sırasında hata oluştu.');
+        }
       }
     } catch (e) {
       setState(() => _yukleniyor = false);
-      _showError('Hata: $e');
+      _showError('Bağlantı hatası: $e');
     }
   }
 

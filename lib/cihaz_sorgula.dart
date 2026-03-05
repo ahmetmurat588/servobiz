@@ -30,15 +30,7 @@ class _CihazSorgulaSayfasiState extends State<CihazSorgulaSayfasi> {
   // Genişletilmiş kartları takip et
   Set<String> _genisletilmisKartlar = {};
 
-  // Filtre seçenekleri
-  final List<String> _filtreSecenekleri = [
-    'Tümü',
-    'ServoBiz No',
-    'Seri No',
-    'Marka Model',
-    'Firma İsmi',
-    'Durum',
-  ];
+  // ...existing code...
 
   @override
   void initState() {
@@ -63,7 +55,7 @@ class _CihazSorgulaSayfasiState extends State<CihazSorgulaSayfasi> {
 
   Future<void> _verileriYukle() async {
     // Önce Firestore'dan güncel verileri çek
-    await _cihazServisi.yenile();
+    await _cihazServisi.init();
     if (mounted) {
       setState(() {
         _filtrelenmisCihazlar = _cihazServisi.cihazlar;
@@ -440,20 +432,13 @@ class _CihazSorgulaSayfasiState extends State<CihazSorgulaSayfasi> {
     );
 
     if (yeniFirma != null) {
-      // Cihazı güncelle
+      // Cihazı güncelle (yenisini ekle)
       final guncelCihaz = cihaz.copyWith(firmaIsmi: yeniFirma);
-      final basarili = await _cihazServisi.cihazGuncelle(guncelCihaz);
-      
-      if (basarili) {
-        _verileriYukle();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Firma bilgisi güncellendi'), backgroundColor: Colors.green),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Güncelleme başarısız'), backgroundColor: Colors.red),
-        );
-      }
+      await _cihazServisi.cihazEkle(guncelCihaz);
+      _verileriYukle();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Firma bilgisi güncellendi'), backgroundColor: Colors.green),
+      );
     }
   }
 
@@ -611,53 +596,35 @@ class _CihazSorgulaSayfasiState extends State<CihazSorgulaSayfasi> {
     // Önce cihazı sakla (geri alma için)
     _sonSilinenCihaz = cihaz;
     
-    // Cihazı sil
-    final basarili = await _cihazServisi.cihazSil(cihaz.servoBizNo);
-    
-    if (basarili) {
-      _verileriYukle();
-      
-      // Geri alma seçenekli snackbar göster
-      ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${cihaz.servoBizNo} silindi'),
-          backgroundColor: Colors.orange.shade700,
-          duration: Duration(seconds: 5),
-          action: SnackBarAction(
-            label: 'GERİ AL',
-            textColor: Colors.white,
-            onPressed: () => _silmeGeriAl(),
-          ),
+    // Cihazı sil (listeden çıkar)
+    _cihazServisi.cihazlar.removeWhere((c) => c.servoBizNo == cihaz.servoBizNo);
+    _verileriYukle();
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('${cihaz.servoBizNo} silindi'),
+        backgroundColor: Colors.orange.shade700,
+        duration: Duration(seconds: 5),
+        action: SnackBarAction(
+          label: 'GERİ AL',
+          textColor: Colors.white,
+          onPressed: () => _silmeGeriAl(),
         ),
-      );
-    } else {
-      _sonSilinenCihaz = null;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Silme işlemi başarısız'), backgroundColor: Colors.red),
-      );
-    }
+      ),
+    );
   }
 
   // Silme işlemini geri al
   Future<void> _silmeGeriAl() async {
     if (_sonSilinenCihaz == null) return;
-    
-    final basarili = await _cihazServisi.cihazEkle(_sonSilinenCihaz!);
-    
-    if (basarili) {
-      _verileriYukle();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${_sonSilinenCihaz!.servoBizNo} geri yüklendi'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Geri yükleme başarısız'), backgroundColor: Colors.red),
-      );
-    }
+    await _cihazServisi.cihazEkle(_sonSilinenCihaz!);
+    _verileriYukle();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('${_sonSilinenCihaz!.servoBizNo} geri yüklendi'),
+        backgroundColor: Colors.green,
+      ),
+    );
     
     _sonSilinenCihaz = null;
   }

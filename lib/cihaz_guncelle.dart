@@ -144,15 +144,13 @@ class _CihazGuncelleSayfasiState extends State<CihazGuncelleSayfasi> {
         final guncelCihaz = _secilenCihaz!.copyWith(
           firmaIsmi: _firmaController.text.trim(),
         );
-        await _cihazServisi.cihazGuncelle(guncelCihaz);
+        await _cihazServisi.cihazEkle(guncelCihaz);
       }
       
       final basarili = await _cihazServisi.durumGuncelle(
         _secilenCihaz!.servoBizNo,
         _secilenDurum!,
         notlar: _notlarController.text.trim(),
-        yazanKullanici: kullanici.adSoyad,
-        yazanEmail: kullanici.email,
       );
 
       if (basarili) {

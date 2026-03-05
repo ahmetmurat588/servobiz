@@ -1,202 +1,241 @@
+import 'dart:convert';
+import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/cihaz.dart';
-import '../models/islem_raporu.dart';
 
-/// Merkezi Cihaz Yönetim Servisi - Firebase Firestore
-/// Tüm cihazları gerçek zamanlı senkronize eder
 class CihazServisi {
   static final CihazServisi _instance = CihazServisi._internal();
   factory CihazServisi() => _instance;
   CihazServisi._internal();
 
-  // Firestore referansı - cache optimize
+  // Firestore referansı
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  static const String _collectionName = 'cihazlar';
-  
-  // Cache kontrolü
-  bool _initialized = false;
-  DateTime? _lastFetch;
-  static const Duration _cacheTimeout = Duration(seconds: 30);
+  static const String _cihazlarCollection = 'cihazlar';
 
-  // Yerel cache
   List<Cihaz> _cihazlar = [];
+  bool _verilerYuklendi = false;
+  bool _ilkKurulumYapildi = false;
 
-  // Getter - cache'den döner
-  List<Cihaz> get cihazlar => List<Cihaz>.from(_cihazlar);
+  List<Cihaz> get cihazlar => List.unmodifiable(_cihazlar);
 
-  // Real-time stream
-  Stream<List<Cihaz>> get cihazlarStream => _firestore
-      .collection(_collectionName)
-      .orderBy('servoBizNo')
-      .snapshots()
-      .map((snapshot) {
-        _cihazlar = snapshot.docs.map((doc) => Cihaz.fromJson(doc.data())).toList();
-        return _cihazlar;
-      });
-
-  /// Başlangıçta verileri yükle
+  /// Uygulama başlangıcında verileri yükle
+  /// Önce Firebase'den veri çeker, yoksa JSON'dan ilk kurulum yapar
   Future<void> init() async {
-    if (_initialized) return; // Zaten yüklendiyse skip
-    await _verileriYukle();
-    _initialized = true;
-  }
-
-  /// Verileri Firestore'dan yükle (cache ile)
-  Future<void> _verileriYukle({bool force = false}) async {
-    // Cache hala geçerliyse Firestore'a gitme (force değilse)
-    if (!force && _lastFetch != null && 
-        DateTime.now().difference(_lastFetch!) < _cacheTimeout &&
-        _cihazlar.isNotEmpty) {
-      return;
-    }
+    if (_verilerYuklendi) return;
     
     try {
-      QuerySnapshot<Map<String, dynamic>> snapshot;
+      // Önce Firebase'den verileri yükle
+      await _firestoreDanYukle();
       
-      if (force) {
-        // Zorla server'dan çek (yenileme için)
-        snapshot = await _firestore
-            .collection(_collectionName)
-            .orderBy('servoBizNo')
-            .get(const GetOptions(source: Source.server));
-      } else {
-        // Önce cache'den dene, hata olursa server'dan çek
-        snapshot = await _firestore
-            .collection(_collectionName)
-            .orderBy('servoBizNo')
-            .get(const GetOptions(source: Source.cache))
-            .catchError((_) => _firestore.collection(_collectionName).orderBy('servoBizNo').get());
+      // Firebase'de veri yoksa JSON'dan ilk kurulum yap
+      if (_cihazlar.isEmpty && !_ilkKurulumYapildi) {
+        print('📋 Firebase boş, JSON\'dan ilk kurulum yapılıyor...');
+        await _jsonDanIlkKurulum();
+        _ilkKurulumYapildi = true;
       }
       
-      _cihazlar = snapshot.docs.map((doc) => Cihaz.fromJson(doc.data())).toList();
-      _lastFetch = DateTime.now();
-      print('✅ Cihazlar yüklendi: ${_cihazlar.length} cihaz (force: $force)');
+      _verilerYuklendi = true;
+      print('✅ Cihaz verileri yüklendi: ${_cihazlar.length} cihaz');
     } catch (e) {
-      print('❌ Cihaz yükleme hatası: $e');
+      print('❌ Veri yükleme hatası: $e');
+      // Hata durumunda sadece JSON'dan yükle (çevrimdışı mod)
+      await _jsonDanYukle();
+      _verilerYuklendi = true;
     }
   }
 
-  /// Verileri yenile (zorla server'dan çek)
-  Future<void> yenile() async {
-    await _verileriYukle(force: true);
-  }
-
-  /// Yeni cihaz ekle
-  Future<bool> cihazEkle(Cihaz cihaz) async {
+  /// Firebase Firestore'dan verileri yükle
+  Future<void> _firestoreDanYukle() async {
     try {
-      // Aynı ServoBiz No ile cihaz var mı kontrol et
-      final existing = await _firestore
-          .collection(_collectionName)
-          .where('servoBizNo', isEqualTo: cihaz.servoBizNo)
+      final snapshot = await _firestore
+          .collection(_cihazlarCollection)
+          .orderBy('servoBizNo', descending: true)
           .get();
       
-      if (existing.docs.isNotEmpty) {
-        print('❌ Bu ServoBiz No zaten mevcut');
-        return false;
-      }
+      _cihazlar = snapshot.docs.map((doc) {
+        final data = doc.data();
+        return Cihaz.fromJson(data);
+      }).toList();
       
-      // Firestore'a ekle
-      await _firestore.collection(_collectionName).doc(cihaz.servoBizNo).set(cihaz.toJson());
-      
-      // Yerel cache güncelle
-      _cihazlar.add(cihaz);
-      print('✅ Cihaz eklendi: ${cihaz.servoBizNo}');
-      return true;
+      print('✅ Firestore\'dan ${_cihazlar.length} cihaz yüklendi');
     } catch (e) {
-      print('❌ Cihaz ekleme hatası: $e');
-      return false;
+      print('⚠️ Firestore yükleme hatası: $e');
+      rethrow;
     }
   }
 
-  /// Cihaz durumunu güncelle
-  Future<bool> durumGuncelle(
-    String servoBizNo, 
-    String yeniDurum, {
-    String? notlar,
-    String? yazanKullanici,
-    String? yazanEmail,
-  }) async {
+  /// JSON dosyasından ilk kurulum - verileri Firebase'e de kaydet
+  Future<void> _jsonDanIlkKurulum() async {
     try {
-      final docRef = _firestore.collection(_collectionName).doc(servoBizNo);
-      final doc = await docRef.get();
+      final String jsonString = await rootBundle.loadString('assets/data.json');
+      final Map<String, dynamic> jsonData = jsonDecode(jsonString);
       
-      if (!doc.exists) {
-        print('❌ Cihaz bulunamadı: $servoBizNo');
-        return false;
+      // JSON yapısı: {"ETİKETLENDİ": [...]} şeklinde
+      List<dynamic> jsonList = [];
+      if (jsonData.containsKey('ETİKETLENDİ')) {
+        jsonList = jsonData['ETİKETLENDİ'] as List;
+      } else {
+        // Diğer olası anahtarları kontrol et
+        for (final entry in jsonData.entries) {
+          if (entry.value is List) {
+            jsonList = entry.value as List;
+            break;
+          }
+        }
       }
       
-      final mevcutCihaz = Cihaz.fromJson(doc.data()!);
-      final eskiDurum = mevcutCihaz.durum;
-      
-      // İşlem raporu oluştur
-      List<IslemRaporu> yeniRaporlar = List.from(mevcutCihaz.islemRaporlari);
-      if (notlar != null && notlar.isNotEmpty && yazanKullanici != null) {
-        final yeniRapor = IslemRaporu(
-          id: DateTime.now().millisecondsSinceEpoch.toString(),
-          icerik: notlar,
-          yazanKullanici: yazanKullanici,
-          yazanEmail: yazanEmail ?? '',
-          tarih: DateTime.now(),
-          eskiDurum: eskiDurum,
-          yeniDurum: yeniDurum,
-        );
-        yeniRaporlar.add(yeniRapor);
+      if (jsonList.isEmpty) {
+        print('⚠️ JSON dosyasında veri bulunamadı');
+        return;
       }
       
-      final guncelCihaz = mevcutCihaz.copyWith(
-        durum: yeniDurum,
-        notlar: notlar ?? mevcutCihaz.notlar,
-        sonGuncelleyen: yazanKullanici,
-        sonDurumDegisiklikTarihi: DateTime.now(),
-        islemRaporlari: yeniRaporlar,
-      );
+      // Batch write için
+      WriteBatch batch = _firestore.batch();
+      int batchCount = 0;
+      const int batchLimit = 400; // Firestore batch limiti 500
       
-      await docRef.set(guncelCihaz.toJson());
-      
-      // Yerel cache güncelle
-      final index = _cihazlar.indexWhere((c) => c.servoBizNo == servoBizNo);
-      if (index != -1) {
-        _cihazlar[index] = guncelCihaz;
+      for (final json in jsonList) {
+        final cihaz = _jsonKayitDonustur(json as Map<String, dynamic>);
+        if (cihaz != null) {
+          _cihazlar.add(cihaz);
+          
+          // Firebase'e kaydet
+          final docRef = _firestore.collection(_cihazlarCollection).doc(cihaz.servoBizNo);
+          batch.set(docRef, cihaz.toJson());
+          batchCount++;
+          
+          // Batch limitine ulaşıldıysa commit et
+          if (batchCount >= batchLimit) {
+            await batch.commit();
+            batch = _firestore.batch();
+            batchCount = 0;
+            print('📊 İlerleme: ${_cihazlar.length} cihaz Firebase\'e kaydedildi');
+          }
+        }
       }
       
-      print('✅ Cihaz durumu güncellendi: $servoBizNo -> $yeniDurum');
-      return true;
+      // Kalan verileri commit et
+      if (batchCount > 0) {
+        await batch.commit();
+      }
+      
+      print('✅ JSON\'dan ${_cihazlar.length} cihaz Firebase\'e yüklendi');
     } catch (e) {
-      print('❌ Durum güncelleme hatası: $e');
-      return false;
+      print('❌ JSON ilk kurulum hatası: $e');
     }
   }
 
-  /// Cihaz bilgilerini güncelle
-  Future<bool> cihazGuncelle(Cihaz guncelCihaz) async {
+  /// JSON dosyasından sadece local yükleme (çevrimdışı mod)
+  Future<void> _jsonDanYukle() async {
     try {
+      final String jsonString = await rootBundle.loadString('assets/data.json');
+      final Map<String, dynamic> jsonData = jsonDecode(jsonString);
+      
+      List<dynamic> jsonList = [];
+      if (jsonData.containsKey('ETİKETLENDİ')) {
+        jsonList = jsonData['ETİKETLENDİ'] as List;
+      } else {
+        for (final entry in jsonData.entries) {
+          if (entry.value is List) {
+            jsonList = entry.value as List;
+            break;
+          }
+        }
+      }
+      
+      _cihazlar = jsonList
+          .map((json) => _jsonKayitDonustur(json as Map<String, dynamic>))
+          .where((c) => c != null)
+          .cast<Cihaz>()
+          .toList();
+      
+      print('✅ JSON\'dan ${_cihazlar.length} cihaz yüklendi (çevrimdışı)');
+    } catch (e) {
+      print('❌ JSON yükleme hatası: $e');
+      _cihazlar = [];
+    }
+  }
+
+  /// JSON kaydını Cihaz modeline dönüştür
+  Cihaz? _jsonKayitDonustur(Map<String, dynamic> json) {
+    // Alan isimlerini esnek şekilde bul
+    String? _al(List<String> anahtarlar) {
+      for (final anahtar in anahtarlar) {
+        final value = json[anahtar];
+        if (value != null && value.toString().trim().isNotEmpty) {
+          return value.toString().trim();
+        }
+      }
+      return null;
+    }
+    
+    // ServoBiz No (zorunlu)
+    final servoBizNo = _al(['Cihaza Verilen No', 'servoBizNo', 'SERVO BİZ NO']);
+    if (servoBizNo == null || servoBizNo.isEmpty) return null;
+    
+    // Tarih
+    final tarihStr = _al(['Tarih', 'tarih', 'TARİH']);
+    final tarih = _formatTarih(tarihStr);
+    
+    // Seri No
+    final seriNo = _al(['Cihaz Seri No', 'seriNo', 'CİHAZ SERİ NO']) ?? '';
+    
+    // Marka Model / Ürün
+    final markaModel = _al(['Ürün', 'markaModel', 'ÜRÜN', 'CİHAZ ADI']) ?? '';
+    
+    // Durum - "Cihaz Durumu" veya "LOBİDE BEKLEMEDE" alanlarından al
+    String durumStr = _al(['Cihaz Durumu', 'durum', 'CİHAZ DURUMU']) ?? '';
+    if (durumStr.isEmpty || durumStr == 'ÇIKIŞI YAPILDI') {
+      // LOBİDE BEKLEMEDE alanında gerçek durum olabilir
+      final lobideDurum = _al(['LOBİDE BEKLEMEDE']);
+      if (lobideDurum != null && lobideDurum.isNotEmpty) {
+        durumStr = lobideDurum;
+      }
+    }
+    final durum = _formatDurum(durumStr.isNotEmpty ? durumStr : 'Lobide');
+    
+    // Firma
+    final firmaIsmi = _al(['Firma', 'firmaIsmi', 'MÜŞTERİ']) ?? '';
+    
+    // Notlar / Yapılan İşlem
+    final notlar = _al(['Yapılan İşlem', 'notlar', 'YAPILAN İŞLEM']);
+    
+    return Cihaz(
+      servoBizNo: servoBizNo,
+      tarih: tarih,
+      seriNo: seriNo,
+      markaModel: markaModel,
+      durum: durum,
+      firmaIsmi: firmaIsmi,
+      notlar: notlar,
+      kaydedenKullaniciAdi: 'sistem',
+      sonGuncelleyen: 'sistem',
+      sonDurumDegisiklikTarihi: DateTime.now(),
+    );
+  }
+
+  /// Cihaz ekle - Firebase'e de kaydet
+  Future<void> cihazEkle(Cihaz cihaz) async {
+    try {
+      // Firebase'e kaydet
       await _firestore
-          .collection(_collectionName)
-          .doc(guncelCihaz.servoBizNo)
-          .set(guncelCihaz.toJson());
+          .collection(_cihazlarCollection)
+          .doc(cihaz.servoBizNo)
+          .set(cihaz.toJson());
       
-      // Yerel cache güncelle
-      final index = _cihazlar.indexWhere((c) => c.servoBizNo == guncelCihaz.servoBizNo);
-      if (index != -1) {
-        _cihazlar[index] = guncelCihaz;
+      // Yerel listeye ekle
+      final existingIndex = _cihazlar.indexWhere((c) => c.servoBizNo == cihaz.servoBizNo);
+      if (existingIndex >= 0) {
+        _cihazlar[existingIndex] = cihaz;
+      } else {
+        _cihazlar.add(cihaz);
       }
       
-      return true;
+      print('✅ Cihaz kaydedildi (Firebase + Local): ${cihaz.servoBizNo}');
     } catch (e) {
-      print('❌ Cihaz güncelleme hatası: $e');
-      return false;
-    }
-  }
-
-  /// Cihaz sil
-  Future<bool> cihazSil(String servoBizNo) async {
-    try {
-      await _firestore.collection(_collectionName).doc(servoBizNo).delete();
-      _cihazlar.removeWhere((c) => c.servoBizNo == servoBizNo);
-      return true;
-    } catch (e) {
-      print('❌ Cihaz silme hatası: $e');
-      return false;
+      print('❌ Cihaz kaydetme hatası: $e');
+      // Hata durumunda sadece local'e ekle
+      _cihazlar.add(cihaz);
     }
   }
 
@@ -209,76 +248,120 @@ class CihazServisi {
     }
   }
 
-  /// Firestore'dan cihaz bul (gerçek zamanlı)
-  Future<Cihaz?> cihazBulAsync(String servoBizNo) async {
+  /// Durum güncelle - Firebase'e de kaydet
+  Future<bool> durumGuncelle(String servoBizNo, String yeniDurum, {String? notlar}) async {
     try {
-      final doc = await _firestore.collection(_collectionName).doc(servoBizNo).get();
-      if (doc.exists) {
-        return Cihaz.fromJson(doc.data()!);
-      }
-      return null;
+      final index = _cihazlar.indexWhere((c) => c.servoBizNo == servoBizNo);
+      if (index == -1) return false;
+      
+      final eskiCihaz = _cihazlar[index];
+      final guncelCihaz = eskiCihaz.copyWith(
+        durum: yeniDurum,
+        notlar: notlar ?? eskiCihaz.notlar,
+        sonGuncelleyen: eskiCihaz.sonGuncelleyen,
+        sonDurumDegisiklikTarihi: DateTime.now(),
+      );
+      
+      // Firebase'e kaydet
+      await _firestore
+          .collection(_cihazlarCollection)
+          .doc(servoBizNo)
+          .update(guncelCihaz.toJson());
+      
+      // Yerel listeyi güncelle
+      _cihazlar[index] = guncelCihaz;
+      print('✅ Durum güncellendi (Firebase + Local): $servoBizNo -> $yeniDurum');
+      return true;
     } catch (e) {
-      return null;
+      print('❌ Durum güncelleme hatası: $e');
+      return false;
     }
   }
 
-  /// Son ServoBiz No'yu al (yeni cihaz için)
-  String sonrakiServoBizNo() {
-    if (_cihazlar.isEmpty) {
-      return '2506001';
+  /// Tüm cihazları sil (admin için)
+  Future<void> tumCihazlariSil() async {
+    try {
+      // Firebase'den sil (batch ile)
+      final snapshot = await _firestore.collection(_cihazlarCollection).get();
+      WriteBatch batch = _firestore.batch();
+      int count = 0;
+      
+      for (final doc in snapshot.docs) {
+        batch.delete(doc.reference);
+        count++;
+        if (count >= 400) {
+          await batch.commit();
+          batch = _firestore.batch();
+          count = 0;
+        }
+      }
+      if (count > 0) {
+        await batch.commit();
+      }
+      
+      // Yerel listeyi temizle
+      _cihazlar.clear();
+      _ilkKurulumYapildi = false;
+      print('🗑️ Tüm cihazlar silindi (Firebase + Local)');
+    } catch (e) {
+      print('❌ Silme hatası: $e');
+      _cihazlar.clear();
     }
+  }
+
+  /// Verileri yenile (Firebase'den tekrar çek)
+  Future<void> yenile() async {
+    _verilerYuklendi = false;
+    await init();
+  }
+
+  /// Tarih formatını düzenle
+  String _formatTarih(String? tarihInput) {
+    if (tarihInput == null || tarihInput.isEmpty) return _getBugunTarihi();
     
     try {
-      // En yüksek numarayı bul
-      int maxNo = 2506000;
-      for (var cihaz in _cihazlar) {
-        final no = int.tryParse(cihaz.servoBizNo) ?? 0;
-        if (no > maxNo) maxNo = no;
+      // M/D/YY formatı (8/22/25)
+      if (tarihInput.contains('/')) {
+        final parts = tarihInput.split('/');
+        if (parts.length == 3) {
+          String year = parts[2];
+          // 2 haneli yıl ise 2000'li yıllara çevir
+          if (year.length == 2) {
+            year = '20$year';
+          }
+          return '${parts[1].padLeft(2, '0')}/${parts[0].padLeft(2, '0')}/$year';
+        }
       }
-      return (maxNo + 1).toString();
+      return tarihInput;
     } catch (e) {
-      return '2506001';
+      return _getBugunTarihi();
     }
   }
 
-  /// Duruma göre cihazları filtrele
-  List<Cihaz> durumFiltrele(String durum) {
-    return _cihazlar.where((c) => c.durum == durum).toList();
+  /// Bugünün tarihini GG/AA/YYYY formatında döndür
+  String _getBugunTarihi() {
+    final now = DateTime.now();
+    return '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}';
   }
 
-  /// Seri numarası ile cihaz ara (büyük/küçük harf duyarsız)
-  List<Cihaz> seriNoIleCihazBul(String seriNo) {
-    if (seriNo.isEmpty) return [];
-    final aramaSeriNo = seriNo.trim().toLowerCase();
-    return _cihazlar.where((c) => 
-      c.seriNo.toLowerCase() == aramaSeriNo
-    ).toList();
-  }
-
-  /// Marka/Model ve Firma ismi ile cihaz ara (büyük/küçük harf duyarsız)
-  List<Cihaz> markaModelVeFirmaIleCihazBul(String markaModel, String firmaIsmi) {
-    if (markaModel.isEmpty || firmaIsmi.isEmpty) return [];
-    final aramaMarkaModel = markaModel.trim().toLowerCase();
-    final aramaFirmaIsmi = firmaIsmi.trim().toLowerCase();
-    return _cihazlar.where((c) => 
-      c.markaModel.toLowerCase() == aramaMarkaModel &&
-      (c.firmaIsmi ?? '').toLowerCase() == aramaFirmaIsmi
-    ).toList();
-  }
-
-  /// Tüm verileri temizle
-  Future<void> tumVerileriTemizle() async {
-    try {
-      final batch = _firestore.batch();
-      final docs = await _firestore.collection(_collectionName).get();
-      for (var doc in docs.docs) {
-        batch.delete(doc.reference);
-      }
-      await batch.commit();
-      _cihazlar.clear();
-      print('🗑️ Tüm cihaz verileri temizlendi');
-    } catch (e) {
-      print('❌ Temizleme hatası: $e');
+  /// Durum formatını düzenle
+  String _formatDurum(String durum) {
+    final durumUpper = durum.toUpperCase().trim();
+    
+    if (durumUpper.contains('ÇIKIŞ') || durumUpper.contains('CIKIS')) {
+      return 'Çıkış Yapıldı';
+    } else if (durumUpper.contains('ATÖLYE') || durumUpper.contains('ATOLYE') || durumUpper.contains('SEVK')) {
+      return 'Atolye Sevk';
+    } else if (durumUpper.contains('TEST')) {
+      return 'Test Ünitesi Sevk';
+    } else if (durumUpper.contains('TESLİM') || durumUpper.contains('TESLIM') || durumUpper.contains('HAZIR')) {
+      return 'Teslime Hazır';
+    } else if (durumUpper.contains('NUMARA')) {
+      return 'Lobide';
+    } else if (durumUpper.contains('LOBİ') || durumUpper.contains('LOBI') || durumUpper.contains('BEKLE')) {
+      return 'Lobide';
     }
+    
+    return 'Lobide';
   }
 }

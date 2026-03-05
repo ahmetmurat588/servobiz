@@ -133,29 +133,79 @@ class KimlkiDogrulamaSistemi {
     print('✅ Çıkış yapıldı');
   }
 
-  // Email var mı kontrol et
+  // Email var mı kontrol et (önce cache, sonra Firebase)
   bool emailVarMi(String email) {
-    return _kullanicilar.any((k) => k.email == email);
+    return _kullanicilar.any((k) => k.email.toLowerCase() == email.toLowerCase());
+  }
+
+  // Email var mı kontrol et - Firebase'den (asenkron, daha güvenilir)
+  Future<bool> emailVarMiFirebase(String email) async {
+    try {
+      // Önce cache'den kontrol
+      if (_kullanicilar.any((k) => k.email.toLowerCase() == email.toLowerCase())) {
+        return true;
+      }
+      
+      // Firebase'den kontrol
+      final snapshot = await _firestore
+          .collection(_collectionName)
+          .where('email', isEqualTo: email.toLowerCase())
+          .get()
+          .timeout(const Duration(seconds: 5));
+      
+      return snapshot.docs.isNotEmpty;
+    } catch (e) {
+      print('❌ Email kontrol hatası: $e');
+      // Hata durumunda cache'e güven
+      return _kullanicilar.any((k) => k.email.toLowerCase() == email.toLowerCase());
+    }
   }
 
   // Email ile kullanıcı bul
   Kullanici? kullaniciEmailBul(String email) {
     try {
-      return _kullanicilar.firstWhere((k) => k.email == email);
+      return _kullanicilar.firstWhere((k) => k.email.toLowerCase() == email.toLowerCase());
     } catch (e) {
       return null;
     }
   }
 
-  // Kullanıcı adı var mı kontrol et
+  // Kullanıcı adı var mı kontrol et (önce cache, sonra Firebase)
   bool kullaniciAdiVarMi(String kullaniciAdi) {
-    return _kullanicilar.any((k) => k.kullaniciAdi == kullaniciAdi);
+    return _kullanicilar.any((k) => k.kullaniciAdi.toLowerCase() == kullaniciAdi.toLowerCase());
   }
+
+  // Kullanıcı adı var mı kontrol et - Firebase'den (asenkron, daha güvenilir)
+  Future<bool> kullaniciAdiVarMiFirebase(String kullaniciAdi) async {
+    try {
+      // Önce cache'den kontrol
+      if (_kullanicilar.any((k) => k.kullaniciAdi.toLowerCase() == kullaniciAdi.toLowerCase())) {
+        return true;
+      }
+      
+      // Firebase'den kontrol
+      final snapshot = await _firestore
+          .collection(_collectionName)
+          .where('kullaniciAdi', isEqualTo: kullaniciAdi)
+          .get()
+          .timeout(const Duration(seconds: 5));
+      
+      return snapshot.docs.isNotEmpty;
+    } catch (e) {
+      print('❌ Kullanıcı adı kontrol hatası: $e');
+      // Hata durumunda cache'e güven
+      return _kullanicilar.any((k) => k.kullaniciAdi.toLowerCase() == kullaniciAdi.toLowerCase());
+    }
+  }
+
+  // Kullanıcı adı var mı kontrol et (eski - geriye uyumluluk için)
+  // Bu fonksiyon kaldırıldı, yukarıdaki kullaniciAdiVarMi kullanılıyor
 
   // Email veya kullanıcı adı var mı kontrol et
   bool emailVeyaKullaniciAdiVarMi(String emailVeyaKullaniciAdi) {
+    final lower = emailVeyaKullaniciAdi.toLowerCase();
     return _kullanicilar.any((k) => 
-      k.email == emailVeyaKullaniciAdi || k.kullaniciAdi == emailVeyaKullaniciAdi
+      k.email.toLowerCase() == lower || k.kullaniciAdi.toLowerCase() == lower
     );
   }
 
@@ -253,7 +303,87 @@ class KimlkiDogrulamaSistemi {
     }
   }
 
-  // Yeni kullanıcı kaydet
+  // Yeni kullanıcı kaydet - detaylı hata mesajı ile
+  // Dönüş: {'basarili': bool, 'mesaj': String, 'hataKodu': String?}
+  Future<Map<String, dynamic>> yeniKullaniciKaydetDetayli({
+    required String email,
+    required String kullaniciAdi,
+    required String adSoyad,
+    required String sifre,
+  }) async {
+    try {
+      final temizEmail = email.trim().toLowerCase();
+      final temizKullaniciAdi = kullaniciAdi.trim();
+      
+      // Email ve kullanıcı adı kontrolünü PARALEL yap (2x daha hızlı)
+      final kontroller = await Future.wait([
+        _firestore
+            .collection(_collectionName)
+            .where('email', isEqualTo: temizEmail)
+            .get(),
+        _firestore
+            .collection(_collectionName)
+            .where('kullaniciAdi', isEqualTo: temizKullaniciAdi)
+            .get(),
+      ]).timeout(const Duration(seconds: 5));
+      
+      if (kontroller[0].docs.isNotEmpty) {
+        print('❌ Email zaten kayıtlı: $temizEmail');
+        return {
+          'basarili': false,
+          'mesaj': 'Bu email adresi zaten kayıtlı!',
+          'hataKodu': 'EMAIL_EXISTS',
+        };
+      }
+
+      if (kontroller[1].docs.isNotEmpty) {
+        print('❌ Kullanıcı adı zaten kayıtlı: $temizKullaniciAdi');
+        return {
+          'basarili': false,
+          'mesaj': 'Bu kullanıcı adı zaten alınmış!',
+          'hataKodu': 'USERNAME_EXISTS',
+        };
+      }
+
+      // Yeni kullanıcı oluştur
+      final yeniKullanici = Kullanici(
+        email: temizEmail,
+        kullaniciAdi: temizKullaniciAdi,
+        adSoyad: adSoyad.trim(),
+        sifre: sifre,
+      );
+
+      // Firestore'a kaydet - 5 saniye timeout
+      await _firestore
+          .collection(_collectionName)
+          .doc(temizEmail)
+          .set(yeniKullanici.toJson())
+          .timeout(const Duration(seconds: 5));
+      
+      // Yerel cache güncelle
+      _kullanicilar.add(yeniKullanici);
+      
+      // Otomatik giriş yap
+      _aktifoKullanici = yeniKullanici;
+      await _aktifKullaniciKaydet();
+      
+      print('✅ Yeni kullanıcı kaydedildi: $temizKullaniciAdi ($adSoyad - $temizEmail)');
+      return {
+        'basarili': true,
+        'mesaj': 'Kayıt başarılı!',
+        'hataKodu': null,
+      };
+    } catch (e) {
+      print('❌ Kayıt hatası: $e');
+      return {
+        'basarili': false,
+        'mesaj': 'Bağlantı hatası. Lütfen tekrar deneyiniz.',
+        'hataKodu': 'CONNECTION_ERROR',
+      };
+    }
+  }
+
+  // Yeni kullanıcı kaydet (eski fonksiyon - geriye uyumluluk)
   Future<bool> yeniKullaniciKaydet({
     required String email,
     required String kullaniciAdi,
@@ -261,25 +391,28 @@ class KimlkiDogrulamaSistemi {
     required String sifre,
   }) async {
     try {
+      final temizEmail = email.trim().toLowerCase();
+      final temizKullaniciAdi = kullaniciAdi.trim();
+      
       // Email ve kullanıcı adı kontrolünü PARALEL yap (2x daha hızlı)
       final kontroller = await Future.wait([
         _firestore
             .collection(_collectionName)
-            .where('email', isEqualTo: email)
+            .where('email', isEqualTo: temizEmail)
             .get(),
         _firestore
             .collection(_collectionName)
-            .where('kullaniciAdi', isEqualTo: kullaniciAdi)
+            .where('kullaniciAdi', isEqualTo: temizKullaniciAdi)
             .get(),
       ]).timeout(const Duration(seconds: 5));
       
       if (kontroller[0].docs.isNotEmpty) {
-        print('❌ Email zaten kayıtlı: $email');
+        print('❌ Email zaten kayıtlı: $temizEmail');
         return false;
       }
 
       if (kontroller[1].docs.isNotEmpty) {
-        print('❌ Kullanıcı adı zaten kayıtlı: $kullaniciAdi');
+        print('❌ Kullanıcı adı zaten kayıtlı: $temizKullaniciAdi');
         return false;
       }
 

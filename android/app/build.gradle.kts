@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "com.example.servobiz"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 35  // Android 15+ desteği
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -22,8 +22,8 @@ android {
 
     defaultConfig {
         applicationId = "com.example.servobiz"
-        minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+        minSdk = flutter.minSdkVersion  // Android 6.0 Marshmallow (minimum)
+        targetSdk = 35  // Android 15+ hedef
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         multiDexEnabled = true
