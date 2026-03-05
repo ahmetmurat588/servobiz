@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:io' show Platform;
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'bildirim_servisi.dart';
@@ -18,12 +20,16 @@ class FCMServisi {
 
   final FirebaseMessaging _messaging = FirebaseMessaging.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final BildirimServisi _bildirimServisi = BildirimServisi();
+  
+  // BildirimServisi referansı (getter ile döngüsel bağımlılık önlenir)
+  BildirimServisi get _bildirimServisi => BildirimServisi();
   
   String? _token;
   String? get token => _token;
+  String? _kullaniciEmail;
   
   bool _initialized = false;
+  StreamSubscription? _bildirimDinleyici;
 
   /// FCM'i başlat ve token'ı kaydet
   Future<void> init(String? kullaniciEmail) async {
@@ -80,13 +86,62 @@ class FCMServisi {
         }
         
         _initialized = true;
+        
+        // Firestore bildirim dinleyicisini başlat
+        _kullaniciEmail = kullaniciEmail;
+        _bildirimDinle();
+        
         print('✅ FCM Servisi başlatıldı');
       } else {
         print('⚠️ Bildirim izni reddedildi');
+        // İzin olmasa bile Firestore dinleyicisini başlat
+        _kullaniciEmail = kullaniciEmail;
+        _bildirimDinle();
       }
     } catch (e) {
       print('❌ FCM başlatma hatası: $e');
     }
+  }
+
+  /// Firestore'daki bildirimler koleksiyonunu gerçek zamanlı dinle
+  /// Diğer cihazlardan gelen bildirimleri yerel bildirim olarak gösterir
+  void _bildirimDinle() {
+    _bildirimDinleyici?.cancel();
+    
+    _bildirimDinleyici = _firestore
+        .collection('bildirimler')
+        .orderBy('createdAt', descending: true)
+        .limit(1)
+        .snapshots()
+        .listen((snapshot) {
+      for (final change in snapshot.docChanges) {
+        if (change.type == DocumentChangeType.added) {
+          final data = change.doc.data();
+          if (data == null) continue;
+          
+          // Kendi gönderdiğimiz bildirimi atla
+          final gonderenToken = data['gonderenToken'] as String?;
+          if (gonderenToken == _token && _token != null) continue;
+          
+          // Hedefli bildirimse sadece hedef kullanıcıya göster
+          final hedefEmail = data['hedefEmail'] as String?;
+          if (hedefEmail != null && hedefEmail != _kullaniciEmail) continue;
+          
+          // Yerel bildirim göster
+          final baslik = data['baslik'] as String? ?? 'Bildirim';
+          final mesaj = data['mesaj'] as String? ?? '';
+          final tip = data['tip'] as String? ?? 'genel';
+          final bildirimData = Map<String, dynamic>.from(data['data'] ?? {});
+          
+          _yerelBildirimGoster(baslik, mesaj, {...bildirimData, 'tip': tip});
+          print('📩 Firestore bildirim alındı: $baslik');
+        }
+      }
+    }, onError: (e) {
+      print('❌ Bildirim dinleme hatası: $e');
+    });
+    
+    print('👂 Firestore bildirim dinleyicisi başlatıldı');
   }
 
   /// Token'ı Firestore'a kaydet
@@ -107,8 +162,9 @@ class FCMServisi {
   
   /// Platform bilgisi al
   String _getPlatform() {
-    // Basit platform tespiti
-    return 'android'; // iOS için 'ios' döndürülebilir
+    if (Platform.isIOS) return 'ios';
+    if (Platform.isAndroid) return 'android';
+    return 'unknown';
   }
 
   /// Token'ı Firestore'dan sil (çıkış yapıldığında)
@@ -161,6 +217,7 @@ class FCMServisi {
           data['servoBizNo'] ?? '',
           mesaj,
           kaydeden: data['kaydeden'],
+          sendPush: false,
         );
         break;
       case 'durum_degisti':
@@ -169,6 +226,7 @@ class FCMServisi {
           data['eskiDurum'] ?? '',
           data['yeniDurum'] ?? '',
           data['guncelleyen'] ?? '',
+          sendPush: false,
         );
         break;
       case 'onay_istegi':
@@ -176,6 +234,7 @@ class FCMServisi {
           data['servoBizNo'] ?? '',
           data['istenenDurum'] ?? '',
           data['isteyen'] ?? '',
+          sendPush: false,
         );
         break;
       case 'onay_sonucu':
@@ -184,11 +243,12 @@ class FCMServisi {
           data['durum'] ?? '',
           data['onaylandi'] == 'true',
           data['islemYapan'] ?? '',
+          sendPush: false,
         );
         break;
       default:
         // Genel bildirim için varsayılan gösterim
-        await _bildirimServisi.cihazKaydedildi(baslik, mesaj);
+        await _bildirimServisi.cihazKaydedildi(baslik, mesaj, sendPush: false);
     }
   }
 
@@ -312,5 +372,11 @@ class FCMServisi {
       print('❌ Token getirme hatası: $e');
       return [];
     }
+  }
+
+  /// Dinleyiciyi durdur
+  void dispose() {
+    _bildirimDinleyici?.cancel();
+    _bildirimDinleyici = null;
   }
 }

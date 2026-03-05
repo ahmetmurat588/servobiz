@@ -9,8 +9,8 @@ class BildirimServisi {
   final FlutterLocalNotificationsPlugin _bildirimPlugin = 
       FlutterLocalNotificationsPlugin();
   
-  // FCM servisi referansı
-  final FCMServisi _fcmServisi = FCMServisi();
+  // FCM servisi referansı (getter ile döngüsel bağımlılık önlenir)
+  FCMServisi get _fcmServisi => FCMServisi();
 
   // Bildirim kanallari
   static const String _cihazKanalId = 'cihaz_kanali';

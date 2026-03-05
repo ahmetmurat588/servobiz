@@ -61,8 +61,8 @@ class _GirisDialogState extends State<GirisDialog> {
     setState(() => _yukleniyor = true);
 
     try {
-      // Önce kullanıcı/email var mı kontrol et
-      if (!_auth.emailVeyaKullaniciAdiVarMi(emailVeyaKullaniciAdi)) {
+      // Önce kullanıcı/email var mı kontrol et (Firebase'den)
+      if (!await _auth.emailVeyaKullaniciAdiVarMiFirebase(emailVeyaKullaniciAdi)) {
         setState(() => _yukleniyor = false);
         _showError('Kayıtlı kullanıcı/email bulunamadı!');
         return;
@@ -232,8 +232,8 @@ class _GirisDialogState extends State<GirisDialog> {
       return;
     }
 
-    // Kullanıcı var mı kontrol et
-    if (!_auth.emailVeyaKullaniciAdiVarMi(emailVeyaKullaniciAdi)) {
+    // Kullanıcı var mı kontrol et (Firebase'den)
+    if (!await _auth.emailVeyaKullaniciAdiVarMiFirebase(emailVeyaKullaniciAdi)) {
       _showError('Kayıtlı kullanıcı/email bulunamadı!');
       return;
     }

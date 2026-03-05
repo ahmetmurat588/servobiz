@@ -27,6 +27,8 @@ class _CihazGuncelleSayfasiState extends State<CihazGuncelleSayfasi> {
   final TextEditingController _seriNoController = TextEditingController();
   final TextEditingController _markaModelController = TextEditingController();
   final TextEditingController _firmaController = TextEditingController();
+  final TextEditingController _cihazTuruController = TextEditingController();
+  final TextEditingController _yanilanIslemController = TextEditingController();
   final TextEditingController _notlarController = TextEditingController();
   final TextEditingController _aramaController = TextEditingController();
 
@@ -73,6 +75,8 @@ class _CihazGuncelleSayfasiState extends State<CihazGuncelleSayfasi> {
       _seriNoController.text = cihaz.seriNo;
       _markaModelController.text = cihaz.markaModel;
       _firmaController.text = cihaz.firmaIsmi ?? '';
+      _cihazTuruController.text = cihaz.cihazTuru ?? '';
+      _yanilanIslemController.text = cihaz.yanilanIslem ?? '';
       _notlarController.text = cihaz.notlar ?? '';
       _secilenDurum = null; // Yeni durum seçilmeli
     });
@@ -100,6 +104,8 @@ class _CihazGuncelleSayfasiState extends State<CihazGuncelleSayfasi> {
     _seriNoController.dispose();
     _markaModelController.dispose();
     _firmaController.dispose();
+    _cihazTuruController.dispose();
+    _yanilanIslemController.dispose();
     _notlarController.dispose();
     _aramaController.dispose();
     super.dispose();
@@ -135,16 +141,33 @@ class _CihazGuncelleSayfasiState extends State<CihazGuncelleSayfasi> {
 
     // Yetkili durum - doğrudan güncelle
     if (_yetkiVarMi(_secilenDurum!)) {
-      // Firma değişti mi kontrol et (admin ise)
-      final firmaGuncellendi = _adminMi && 
-          _firmaController.text.trim() != (_secilenCihaz!.firmaIsmi ?? '');
-      
-      if (firmaGuncellendi) {
-        // Önce firma bilgisini güncelle
-        final guncelCihaz = _secilenCihaz!.copyWith(
-          firmaIsmi: _firmaController.text.trim(),
-        );
-        await _cihazServisi.cihazEkle(guncelCihaz);
+      // Admin ise değişen alanları kontrol et ve güncelle
+      bool bilgiGuncellendi = false;
+      if (_adminMi) {
+        final yeniTarih = _tarikhController.text.trim();
+        final yeniSeriNo = _seriNoController.text.trim();
+        final yeniMarkaModel = _markaModelController.text.trim();
+        final yeniFirma = _firmaController.text.trim();
+        final yeniCihazTuru = _cihazTuruController.text.trim();
+        final yeniYanilanIslem = _yanilanIslemController.text.trim();
+
+        if (yeniTarih != _secilenCihaz!.tarih ||
+            yeniSeriNo != _secilenCihaz!.seriNo ||
+            yeniMarkaModel != _secilenCihaz!.markaModel ||
+            yeniFirma != (_secilenCihaz!.firmaIsmi ?? '') ||
+            yeniCihazTuru != (_secilenCihaz!.cihazTuru ?? '') ||
+            yeniYanilanIslem != (_secilenCihaz!.yanilanIslem ?? '')) {
+          final guncelCihaz = _secilenCihaz!.copyWith(
+            tarih: yeniTarih,
+            seriNo: yeniSeriNo,
+            markaModel: yeniMarkaModel,
+            firmaIsmi: yeniFirma,
+            cihazTuru: yeniCihazTuru.isEmpty ? null : yeniCihazTuru,
+            yanilanIslem: yeniYanilanIslem.isEmpty ? null : yeniYanilanIslem,
+          );
+          await _cihazServisi.cihazEkle(guncelCihaz);
+          bilgiGuncellendi = true;
+        }
       }
       
       final basarili = await _cihazServisi.durumGuncelle(
@@ -162,8 +185,8 @@ class _CihazGuncelleSayfasiState extends State<CihazGuncelleSayfasi> {
           kullanici.adSoyad,
         );
         
-        _showSuccess(firmaGuncellendi 
-            ? 'Cihaz durumu ve firma bilgisi güncellendi!' 
+        _showSuccess(bilgiGuncellendi 
+            ? 'Cihaz durumu ve bilgileri güncellendi!' 
             : 'Cihaz durumu güncellendi!');
         Future.delayed(const Duration(milliseconds: 800), () {
           if (mounted) Navigator.pop(context, true);
@@ -339,24 +362,24 @@ class _CihazGuncelleSayfasiState extends State<CihazGuncelleSayfasi> {
                   ),
                   const SizedBox(height: 10),
                   
-                  // ServoBiz No
+                  // ServoBiz No (her zaman salt okunur)
                   _buildReadOnlyField(_servoBizNoController, "ServoBiz No", Icons.fingerprint),
                   const SizedBox(height: 20),
 
-                  // Tarih
-                  _buildReadOnlyField(_tarikhController, "Tarih", Icons.calendar_today),
+                  // Tarih - Admin düzenleyebilir
+                  _buildEditableField(_tarikhController, "Tarih", Icons.calendar_today),
                   const SizedBox(height: 20),
 
-                  // Seri No
-                  _buildReadOnlyField(_seriNoController, "Seri No", Icons.assignment),
+                  // Seri No - Admin düzenleyebilir
+                  _buildEditableField(_seriNoController, "Seri No", Icons.assignment),
                   const SizedBox(height: 20),
 
-                  // Marka Model
-                  _buildReadOnlyField(_markaModelController, "Marka Model", Icons.info),
+                  // Marka Model - Admin düzenleyebilir
+                  _buildEditableField(_markaModelController, "Marka Model", Icons.info),
                   const SizedBox(height: 20),
 
                   // Firma Bilgisi - Admin düzenleyebilir
-                  _buildFirmaField(),
+                  _buildEditableField(_firmaController, "Firma İsmi", Icons.business),
                   const SizedBox(height: 20),
 
                   // Mevcut Durum (bilgi)
@@ -738,17 +761,17 @@ class _CihazGuncelleSayfasiState extends State<CihazGuncelleSayfasi> {
     );
   }
 
-  // Firma alanı - Admin için düzenlenebilir
-  Widget _buildFirmaField() {
+  // Admin için düzenlenebilir, diğerleri için salt okunur alan
+  Widget _buildEditableField(TextEditingController controller, String label, IconData icon) {
     return TextFormField(
-      controller: _firmaController,
+      controller: controller,
       readOnly: !_adminMi,
       decoration: InputDecoration(
-        labelText: _adminMi ? "Firma İsmi (Düzenlenebilir)" : "Firma İsmi",
+        labelText: _adminMi ? "$label (Düzenlenebilir)" : label,
         labelStyle: const TextStyle(color: Colors.white),
-        prefixIcon: Icon(Icons.business, color: _adminMi ? Colors.amber : Colors.white),
+        prefixIcon: Icon(icon, color: _adminMi ? Colors.amber : Colors.white),
         suffixIcon: _adminMi 
-            ? Icon(Icons.edit, color: Colors.amber, size: 20) 
+            ? const Icon(Icons.edit, color: Colors.amber, size: 20) 
             : null,
         filled: true,
         fillColor: _adminMi 

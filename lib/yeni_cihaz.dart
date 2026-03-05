@@ -42,8 +42,8 @@ class _YeniCihazSayfasiState extends State<YeniCihazSayfasi> {
     await _cihazServisi.init();
     if (mounted) {
       setState(() {
-        // Otomatik yeni ServoBizNo üretimi (örnek: toplam cihaz + 1)
-        servoBizNo = (_cihazServisi.cihazlar.length + 1).toString().padLeft(5, '0');
+        // Otomatik yeni ServoBizNo üretimi (250600n formatında)
+        servoBizNo = _cihazServisi.sonrakiServoBizNo();
         _yukleniyor = false;
       });
     }

@@ -42,7 +42,7 @@ class KimlkiDogrulamaSistemi {
   // Verileri Firestore'dan yükle (cache öncelikli)
   Future<void> _verileriYukle() async {
     try {
-      // Önce cache'den oku
+      // Önce cache'den oku, hata olursa sunucudan
       final snapshot = await _firestore
           .collection(_collectionName)
           .get(const GetOptions(source: Source.cache))
@@ -83,9 +83,23 @@ class KimlkiDogrulamaSistemi {
     }
   }
 
+  // Verileri sunucudan yükle (güncel veri)
+  Future<void> _verileriSunucudanYukle() async {
+    try {
+      final snapshot = await _firestore
+          .collection(_collectionName)
+          .get(const GetOptions(source: Source.server));
+      
+      _kullanicilar = snapshot.docs.map((doc) => Kullanici.fromJson(doc.data())).toList();
+      print('✅ Kullanıcılar sunucudan yüklendi: ${_kullanicilar.length} kullanıcı');
+    } catch (e) {
+      print('❌ Sunucu yükleme hatası: $e');
+    }
+  }
+
   // Verileri yenile
   Future<void> yenile() async {
-    await _verileriYukle();
+    await _verileriSunucudanYukle();
   }
 
   // Email veya kullanıcı adı ile giriş yap
@@ -94,9 +108,9 @@ class KimlkiDogrulamaSistemi {
       // Önce cache'den kontrol et (hızlı)
       Kullanici? kullanici = _kullaniciBul(emailVeyaKullaniciAdi, sifre);
       
-      // Cache'de yoksa Firestore'dan güncelle ve tekrar dene
+      // Cache'de yoksa sunucudan güncelle ve tekrar dene
       if (kullanici == null) {
-        await _verileriYukle().timeout(const Duration(seconds: 5));
+        await _verileriSunucudanYukle().timeout(const Duration(seconds: 5));
         kullanici = _kullaniciBul(emailVeyaKullaniciAdi, sifre);
       }
       
@@ -201,12 +215,35 @@ class KimlkiDogrulamaSistemi {
   // Kullanıcı adı var mı kontrol et (eski - geriye uyumluluk için)
   // Bu fonksiyon kaldırıldı, yukarıdaki kullaniciAdiVarMi kullanılıyor
 
-  // Email veya kullanıcı adı var mı kontrol et
+  // Email veya kullanıcı adı var mı kontrol et (cache)
   bool emailVeyaKullaniciAdiVarMi(String emailVeyaKullaniciAdi) {
     final lower = emailVeyaKullaniciAdi.toLowerCase();
     return _kullanicilar.any((k) => 
       k.email.toLowerCase() == lower || k.kullaniciAdi.toLowerCase() == lower
     );
+  }
+
+  // Email veya kullanıcı adı var mı kontrol et - Firebase'den (asenkron, daha güvenilir)
+  Future<bool> emailVeyaKullaniciAdiVarMiFirebase(String emailVeyaKullaniciAdi) async {
+    final lower = emailVeyaKullaniciAdi.toLowerCase();
+    
+    // Önce cache'den kontrol
+    if (_kullanicilar.any((k) => 
+      k.email.toLowerCase() == lower || k.kullaniciAdi.toLowerCase() == lower
+    )) {
+      return true;
+    }
+    
+    // Cache'de yoksa sunucudan güncelle ve tekrar dene
+    try {
+      await _verileriSunucudanYukle().timeout(const Duration(seconds: 5));
+      return _kullanicilar.any((k) => 
+        k.email.toLowerCase() == lower || k.kullaniciAdi.toLowerCase() == lower
+      );
+    } catch (e) {
+      print('❌ Firebase kullanıcı kontrol hatası: $e');
+      return false;
+    }
   }
 
   // Şifre kontrolü

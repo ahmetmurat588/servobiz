@@ -28,20 +28,30 @@ class CihazServisi {
       await _firestoreDanYukle();
       
       // Firebase'de veri yoksa JSON'dan ilk kurulum yap
-      if (_cihazlar.isEmpty && !_ilkKurulumYapildi) {
+      if (_cihazlar.isEmpty) {
         print('📋 Firebase boş, JSON\'dan ilk kurulum yapılıyor...');
         await _jsonDanIlkKurulum();
-        _ilkKurulumYapildi = true;
       }
       
       _verilerYuklendi = true;
       print('✅ Cihaz verileri yüklendi: ${_cihazlar.length} cihaz');
     } catch (e) {
       print('❌ Veri yükleme hatası: $e');
-      // Hata durumunda sadece JSON'dan yükle (çevrimdışı mod)
-      await _jsonDanYukle();
+      // Firestore bağlantı hatası - JSON'dan yükle ve Firebase'e kaydetmeyi dene
+      try {
+        await _jsonDanIlkKurulum();
+      } catch (_) {
+        await _jsonDanYukle();
+      }
       _verilerYuklendi = true;
     }
+  }
+
+  /// JSON verilerini Firebase'e zorla yükle (mevcut verileri silmeden)
+  Future<void> jsonDanFirebaseYukle() async {
+    print('🔄 JSON verileri Firebase\'e yükleniyor...');
+    await _jsonDanIlkKurulum();
+    print('✅ JSON verileri Firebase\'e yüklendi: ${_cihazlar.length} cihaz');
   }
 
   /// Firebase Firestore'dan verileri yükle
@@ -49,8 +59,8 @@ class CihazServisi {
     try {
       final snapshot = await _firestore
           .collection(_cihazlarCollection)
-          .orderBy('servoBizNo', descending: true)
-          .get();
+          .get()
+          .timeout(const Duration(seconds: 10));
       
       _cihazlar = snapshot.docs.map((doc) {
         final data = doc.data();
@@ -62,6 +72,30 @@ class CihazServisi {
       print('⚠️ Firestore yükleme hatası: $e');
       rethrow;
     }
+  }
+
+  /// Sonraki ServoBiz No'yu üret (250600n formatında)
+  /// Mevcut en yüksek 2506xxx numarasını bulup +1 yapar
+  String sonrakiServoBizNo() {
+    // Mevcut cihazlardan 2506 ile başlayan en yüksek numarayı bul
+    int enYuksek = 0;
+    for (final cihaz in _cihazlar) {
+      final no = cihaz.servoBizNo;
+      // 2506 ile başlayan numaraları kontrol et
+      if (no.startsWith('2506')) {
+        final sayi = int.tryParse(no);
+        if (sayi != null && sayi > enYuksek) {
+          enYuksek = sayi;
+        }
+      }
+    }
+    
+    // Eğer hiç 2506xxx yoksa 2506001'den başla
+    if (enYuksek == 0) {
+      enYuksek = 2506000;
+    }
+    
+    return (enYuksek + 1).toString();
   }
 
   /// JSON dosyasından ilk kurulum - verileri Firebase'e de kaydet
@@ -274,6 +308,19 @@ class CihazServisi {
       return true;
     } catch (e) {
       print('❌ Durum güncelleme hatası: $e');
+      return false;
+    }
+  }
+
+  /// Tek cihaz sil (admin için) - Firebase + Local
+  Future<bool> cihazSil(String servoBizNo) async {
+    try {
+      await _firestore.collection(_cihazlarCollection).doc(servoBizNo).delete();
+      _cihazlar.removeWhere((c) => c.servoBizNo == servoBizNo);
+      print('🗑️ Cihaz silindi: $servoBizNo');
+      return true;
+    } catch (e) {
+      print('❌ Cihaz silme hatası: $e');
       return false;
     }
   }

@@ -40,6 +40,16 @@
 	<!-- FOTOĞRAF KÜTÜPHANESİ İZNİ - Opsiyonel (ileride kullanmak için) -->
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>ServoBiz, cihaz raporlarını fotoğraf kütüphanenize kaydetmek için izin ister.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>ServoBiz, cihaz raporlarına fotoğraf eklemek için kütüphane erişimi ister.</string>
+	
+	<!-- DOSYA ERİŞİM İZNİ - file_picker için -->
+	<key>NSDocumentPickerUsageDescription</key>
+	<string>ServoBiz, Excel dosyalarını içe ve dışa aktarmak için dosya erişimi ister.</string>
+	
+	<!-- KAMERA İZNİ - Opsiyonel (ileride kullanmak için) -->
+	<key>NSCameraUsageDescription</key>
+	<string>ServoBiz, cihaz fotoğrafı çekmek için kamera erişimi ister.</string>
 	
 	<!-- İNTERNET GÜVENLİK AYARLARI - Firebase için -->
 	<key>NSAppTransportSecurity</key>

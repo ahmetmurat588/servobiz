@@ -596,8 +596,17 @@ class _CihazSorgulaSayfasiState extends State<CihazSorgulaSayfasi> {
     // Önce cihazı sakla (geri alma için)
     _sonSilinenCihaz = cihaz;
     
-    // Cihazı sil (listeden çıkar)
-    _cihazServisi.cihazlar.removeWhere((c) => c.servoBizNo == cihaz.servoBizNo);
+    // Cihazı sil (Firebase + listeden çıkar)
+    final basarili = await _cihazServisi.cihazSil(cihaz.servoBizNo);
+    if (!basarili) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Cihaz silinirken hata oluştu'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
     _verileriYukle();
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(

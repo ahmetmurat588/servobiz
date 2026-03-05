@@ -59,7 +59,7 @@ class YetkilendirmeSistemi {
           .catchError((_) => _firestore.collection(_yetkilerCollection).get());
       _kullaniciYetkileri.clear();
       for (var doc in yetkilerSnapshot.docs) {
-        _kullaniciYetkileri[doc.id] = KullaniciYetkisi.fromJson(doc.data());
+        _kullaniciYetkileri[doc.id.toLowerCase()] = KullaniciYetkisi.fromJson(doc.data());
       }
 
       // Onaylayıcıları yükle - cache öncelikli
@@ -99,24 +99,25 @@ class YetkilendirmeSistemi {
 
   /// Kullanıcının yetkilerini al
   KullaniciYetkisi? kullaniciYetkisiAl(String email) {
-    return _kullaniciYetkileri[email];
+    return _kullaniciYetkileri[email.toLowerCase()];
   }
 
   /// Kullanıcı admin mi?
   bool adminMi(String email) {
-    return email == adminEmail || (_kullaniciYetkileri[email]?.adminMi ?? false);
+    final normalizedEmail = email.trim().toLowerCase();
+    return normalizedEmail == adminEmail || (_kullaniciYetkileri[normalizedEmail]?.adminMi ?? false);
   }
 
   /// Kullanıcının erişebildiği durumları al
   List<String> erisilebilenDurumlariAl(String email) {
-    final yetki = _kullaniciYetkileri[email];
+    final yetki = _kullaniciYetkileri[email.toLowerCase()];
     if (yetki == null) return <String>[];
     return List<String>.from(yetki.erisilebilenDurumlar);
   }
 
   /// Kullanıcının belirli bir duruma erişim yetkisi var mı?
   bool durumErisimYetkisiVarMi(String email, String durum) {
-    final yetki = _kullaniciYetkileri[email];
+    final yetki = _kullaniciYetkileri[email.toLowerCase()];
     if (yetki == null) return false;
     return yetki.durumErisimYetkisiVarMi(durum);
   }
@@ -128,7 +129,7 @@ class YetkilendirmeSistemi {
     required String mevcutDurum,
     required String yeniDurum,
   }) {
-    final yetki = _kullaniciYetkileri[kullaniciEmail];
+    final yetki = _kullaniciYetkileri[kullaniciEmail.toLowerCase()];
     
     if (yetki == null) {
       return {
@@ -157,24 +158,25 @@ class YetkilendirmeSistemi {
     if (!adminMi(adminEmailKontrol)) return false;
 
     try {
+      final normalizedEmail = kullaniciEmail.toLowerCase();
       KullaniciYetkisi yeniYetki;
       
-      if (_kullaniciYetkileri.containsKey(kullaniciEmail)) {
-        yeniYetki = _kullaniciYetkileri[kullaniciEmail]!.copyWith(
+      if (_kullaniciYetkileri.containsKey(normalizedEmail)) {
+        yeniYetki = _kullaniciYetkileri[normalizedEmail]!.copyWith(
           erisilebilenDurumlar: durumlar,
         );
       } else {
         yeniYetki = KullaniciYetkisi(
-          kullaniciEmail: kullaniciEmail,
+          kullaniciEmail: normalizedEmail,
           erisilebilenDurumlar: durumlar,
         );
       }
       
       // Firestore'a kaydet
-      await _firestore.collection(_yetkilerCollection).doc(kullaniciEmail).set(yeniYetki.toJson());
+      await _firestore.collection(_yetkilerCollection).doc(normalizedEmail).set(yeniYetki.toJson());
       
       // Yerel cache güncelle
-      _kullaniciYetkileri[kullaniciEmail] = yeniYetki;
+      _kullaniciYetkileri[normalizedEmail] = yeniYetki;
       
       print('✅ Yetki güncellendi: $kullaniciEmail');
       return true;
@@ -187,14 +189,15 @@ class YetkilendirmeSistemi {
   /// Kullanıcının tüm yetkilerini kaldır (sadece admin)
   Future<bool> yetkiKaldir(String adminEmailKontrol, String kullaniciEmail) async {
     if (!adminMi(adminEmailKontrol)) return false;
-    if (kullaniciEmail == adminEmail) return false; // Admin yetkisi kaldırılamaz
+    if (kullaniciEmail.toLowerCase() == adminEmail) return false; // Admin yetkisi kaldırılamaz
 
     try {
+      final normalizedEmail = kullaniciEmail.toLowerCase();
       // Firestore'dan sil
-      await _firestore.collection(_yetkilerCollection).doc(kullaniciEmail).delete();
+      await _firestore.collection(_yetkilerCollection).doc(normalizedEmail).delete();
       
       // Yerel cache güncelle
-      _kullaniciYetkileri.remove(kullaniciEmail);
+      _kullaniciYetkileri.remove(normalizedEmail);
       
       print('✅ Yetki kaldırıldı: $kullaniciEmail');
       return true;
@@ -207,9 +210,10 @@ class YetkilendirmeSistemi {
   /// Kullanıcının tek bir yetkisini kaldır (sadece admin)
   Future<bool> tekYetkiKaldir(String adminEmailKontrol, String kullaniciEmail, String durum) async {
     if (!adminMi(adminEmailKontrol)) return false;
-    if (kullaniciEmail == adminEmail) return false; // Admin yetkisi değiştirilemez
+    if (kullaniciEmail.toLowerCase() == adminEmail) return false; // Admin yetkisi değiştirilemez
 
-    final yetki = _kullaniciYetkileri[kullaniciEmail];
+    final normalizedEmail = kullaniciEmail.toLowerCase();
+    final yetki = _kullaniciYetkileri[normalizedEmail];
     if (yetki == null) return false;
 
     try {
@@ -221,10 +225,10 @@ class YetkilendirmeSistemi {
       );
       
       // Firestore'a kaydet
-      await _firestore.collection(_yetkilerCollection).doc(kullaniciEmail).set(guncelYetki.toJson());
+      await _firestore.collection(_yetkilerCollection).doc(normalizedEmail).set(guncelYetki.toJson());
       
       // Yerel cache güncelle
-      _kullaniciYetkileri[kullaniciEmail] = guncelYetki;
+      _kullaniciYetkileri[normalizedEmail] = guncelYetki;
       
       return true;
     } catch (e) {
@@ -304,6 +308,7 @@ class YetkilendirmeSistemi {
   /// Kullanıcı belirli bir durumu onaylayabilir mi?
   bool durumOnaylayabilirMi(String email, String durum) {
     if (adminMi(email)) return true;
-    return _durumOnaylayanlari[durum]?.contains(email) ?? false;
+    final normalizedEmail = email.toLowerCase();
+    return _durumOnaylayanlari[durum]?.any((e) => e.toLowerCase() == normalizedEmail) ?? false;
   }
 }
